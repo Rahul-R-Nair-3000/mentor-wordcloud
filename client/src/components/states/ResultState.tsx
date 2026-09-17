@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Download, RefreshCw, Sparkles, FileText, BarChart2, Copy } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Download, RefreshCw, Sparkles, FileText, BarChart2, Copy, Loader2 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 
 export interface TermItem {
   term: string;
@@ -20,6 +21,8 @@ interface ResultStateProps {
 
 export const ResultState: React.FC<ResultStateProps> = ({ analysisResult, onReset }) => {
   const [activeTab, setActiveTab] = useState<'cloud' | 'keywords' | 'transcript'>('cloud');
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const cloudRef = useRef<HTMLDivElement>(null);
 
   // Use returned terms from API or default fallback dataset
   const termsList = analysisResult?.terms && analysisResult.terms.length > 0
@@ -43,6 +46,28 @@ export const ResultState: React.FC<ResultStateProps> = ({ analysisResult, onRese
     return { size: 'text-lg sm:text-2xl font-semibold', color: 'text-sky-300' };
   };
 
+  // Export word cloud container as PNG image
+  const handleExportPng = async () => {
+    if (!cloudRef.current) return;
+    setIsExporting(true);
+    try {
+      const canvas = await html2canvas(cloudRef.current, {
+        backgroundColor: '#020617',
+        scale: 2,
+        useCORS: true,
+      });
+      const image = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = image;
+      link.download = 'wordcloud.png';
+      link.click();
+    } catch (err) {
+      console.error('Failed to export PNG:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-3xl mx-auto p-4 sm:p-8 rounded-3xl bg-slate-900/70 border border-slate-800 shadow-2xl backdrop-blur-xl flex flex-col items-center">
       {/* Header Bar */}
@@ -63,10 +88,16 @@ export const ResultState: React.FC<ResultStateProps> = ({ analysisResult, onRese
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <button
             type="button"
-            className="flex items-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 text-xs font-semibold hover:bg-indigo-600/30 transition"
+            onClick={handleExportPng}
+            disabled={isExporting}
+            className="flex items-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 text-xs font-semibold hover:bg-indigo-600/30 disabled:opacity-50 transition"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export PNG</span>
+            {isExporting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            <span>{isExporting ? 'Exporting...' : 'Export PNG'}</span>
           </button>
 
           <button
@@ -124,7 +155,10 @@ export const ResultState: React.FC<ResultStateProps> = ({ analysisResult, onRese
 
       {/* Tab 1: Word Cloud Container */}
       {activeTab === 'cloud' && (
-        <div className="w-full min-h-[260px] sm:min-h-[320px] p-6 sm:p-10 rounded-2xl bg-slate-950/90 border border-slate-800 flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-center select-none shadow-inner relative overflow-hidden">
+        <div
+          ref={cloudRef}
+          className="w-full min-h-[260px] sm:min-h-[320px] p-6 sm:p-10 rounded-2xl bg-slate-950/90 border border-slate-800 flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-center select-none shadow-inner relative overflow-hidden"
+        >
           <div className="absolute inset-0 bg-gradient-to-tr from-indigo-900/10 via-transparent to-violet-900/10 pointer-events-none" />
 
           {termsList.map((item, idx) => {

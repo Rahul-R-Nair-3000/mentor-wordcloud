@@ -1,122 +1,216 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useState, useEffect } from 'react';
+import { Header } from './components/Header';
+import { SegmentedControl, type InputMode } from './components/SegmentedControl';
+import { DevStateSwitcher, type UIState } from './components/DevStateSwitcher';
+import { RecordingState } from './components/states/RecordingState';
+import { RecordedState } from './components/states/RecordedState';
+import { UploadProgressState } from './components/states/UploadProgressState';
+import { AnalyzingState } from './components/states/AnalyzingState';
+import { ErrorState } from './components/states/ErrorState';
+import { ResultState } from './components/states/ResultState';
+import { UploadDropzone } from './components/UploadDropzone';
+
+import { useAudioRecorder } from './hooks/useAudioRecorder';
+import { useAudioUpload } from './hooks/useAudioUpload';
+import { analyzeAudioApi, type AnalyzeResponse } from './api/analyze';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [inputMode, setInputMode] = useState<InputMode>('record');
+  const [uiStateOverride, setUiStateOverride] = useState<UIState | null>(null);
+
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysisResult, setAnalysisResult] = useState<AnalyzeResponse | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  const recorder = useAudioRecorder();
+  const upload = useAudioUpload();
+
+  // Execute real network request to POST /api/analyze
+  const handleStartAnalysis = async () => {
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setUiStateOverride(null);
+
+    try {
+      let blobToUpload: Blob | null = null;
+      let filename = 'audio.webm';
+
+      if (inputMode === 'record' && recorder.recordedBlob) {
+        blobToUpload = recorder.recordedBlob;
+        filename = 'recorded_session.webm';
+      } else if (inputMode === 'upload' && upload.selectedFile) {
+        blobToUpload = upload.selectedFile.file;
+        filename = upload.selectedFile.name;
+      }
+
+      if (!blobToUpload) {
+        throw new Error('No audio file available for analysis.');
+      }
+
+      const responseData = await analyzeAudioApi(blobToUpload, filename);
+      setAnalysisResult(responseData);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An error occurred during audio analysis.';
+      setAnalysisError(msg);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Compute active state
+  let currentUIState: UIState = 'recording';
+
+  if (uiStateOverride) {
+    currentUIState = uiStateOverride;
+  } else if (isAnalyzing) {
+    currentUIState = 'analyzing';
+  } else if (analysisError || recorder.error || upload.error) {
+    currentUIState = 'error';
+  } else if (analysisResult) {
+    currentUIState = 'result';
+  } else if (inputMode === 'record') {
+    if (recorder.isRecording) {
+      currentUIState = 'recording';
+    } else if (recorder.recordedBlob && recorder.audioUrl) {
+      currentUIState = 'recorded';
+    } else {
+      currentUIState = 'recording';
+    }
+  } else {
+    currentUIState = 'upload-progress';
+  }
+
+  // Clear state when changing modes
+  const handleModeChange = (mode: InputMode) => {
+    setInputMode(mode);
+    setUiStateOverride(null);
+    setAnalysisResult(null);
+    setAnalysisError(null);
+    if (mode === 'record') {
+      upload.clearFile();
+    } else {
+      recorder.discardRecording();
+    }
+  };
+
+  // Full reset back to initial state
+  const handleReset = () => {
+    recorder.discardRecording();
+    upload.clearFile();
+    setInputMode('record');
+    setUiStateOverride(null);
+    setAnalysisResult(null);
+    setAnalysisError(null);
+    setIsAnalyzing(false);
+  };
+
+  // Reset error override if user resolves error
+  useEffect(() => {
+    if (recorder.error || upload.error || analysisError) {
+      setUiStateOverride(null);
+    }
+  }, [recorder.error, upload.error, analysisError]);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-between font-sans selection:bg-indigo-500 selection:text-white px-4 py-8">
+      {/* Top Header */}
+      <div className="w-full">
+        <Header />
 
-      <div className="ticks"></div>
+        {/* Segmented Record / Upload Control */}
+        <SegmentedControl mode={inputMode} onModeChange={handleModeChange} />
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+        {/* Dev Switcher for state review */}
+        <DevStateSwitcher
+          currentState={currentUIState}
+          onStateChange={(state) => setUiStateOverride(state)}
+        />
+      </div>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {/* Main Container Area */}
+      <main className="w-full my-auto flex flex-col items-center justify-center">
+        {/* ERROR STATE */}
+        {currentUIState === 'error' && (
+          <ErrorState
+            errorMessage={analysisError || recorder.error || upload.error || 'An error occurred.'}
+            onRetry={() => {
+              setAnalysisError(null);
+              if (recorder.error) {
+                recorder.startRecording();
+              } else if (upload.error) {
+                upload.clearFile();
+              } else {
+                handleStartAnalysis();
+              }
+            }}
+            onSelectAnother={() => {
+              handleReset();
+              setInputMode('upload');
+            }}
+          />
+        )}
+
+        {/* RECORDING MODE */}
+        {inputMode === 'record' && currentUIState !== 'error' && currentUIState !== 'analyzing' && currentUIState !== 'result' && (
+          <>
+            {currentUIState === 'recording' && (
+              <RecordingState
+                isRecording={recorder.isRecording}
+                formattedTime={recorder.formattedTime}
+                onStart={recorder.startRecording}
+                onStop={recorder.stopRecording}
+                onCancel={recorder.discardRecording}
+              />
+            )}
+
+            {currentUIState === 'recorded' && (
+              <RecordedState
+                audioUrl={recorder.audioUrl}
+                fileName="Recorded_Feedback.webm"
+                formattedDuration={recorder.formattedTime}
+                onDiscard={recorder.discardRecording}
+                onAnalyze={handleStartAnalysis}
+              />
+            )}
+          </>
+        )}
+
+        {/* UPLOAD MODE */}
+        {inputMode === 'upload' && currentUIState !== 'error' && currentUIState !== 'analyzing' && currentUIState !== 'result' && (
+          <>
+            {!upload.selectedFile ? (
+              <UploadDropzone onFileSelected={upload.handleFileSelect} />
+            ) : (
+              <UploadProgressState
+                fileName={upload.selectedFile.name}
+                formattedSize={upload.selectedFile.formattedSize}
+                formattedDuration={upload.selectedFile.formattedDuration}
+                onAnalyze={handleStartAnalysis}
+                onCancel={upload.clearFile}
+              />
+            )}
+          </>
+        )}
+
+        {/* ANALYZING STATE */}
+        {currentUIState === 'analyzing' && <AnalyzingState />}
+
+        {/* RESULT STATE */}
+        {currentUIState === 'result' && (
+          <ResultState
+            analysisResult={analysisResult}
+            onReset={handleReset}
+          />
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="w-full text-center mt-12 pt-6 border-t border-slate-900 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2 max-w-4xl">
+        <span>Mentor Wordcloud Real Network Pipeline • POST /api/analyze (Multer 25MB)</span>
+        <span className="font-mono text-indigo-400 text-[11px]">Active state: {currentUIState}</span>
+      </footer>
+    </div>
+  );
 }
 
-export default App
+export default App;
